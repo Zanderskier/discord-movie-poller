@@ -17,7 +17,7 @@ This Python script automates the creation of weekly movie night polls based on y
 
 - 🗳️ **Discord Poll Automation**
   - Automatically types out `/poll` commands into Discord using `pyautogui`
-  - Formats the poll for Simple Poll or similar bots
+  - Formats the poll for [Simple Poll](https://discord.com/discovery/applications/324631108731928587) App or similar bots
 
 - 🧾 **CSV Export**
   - Saves selected movies to a weekly CSV log to prevent repetition
