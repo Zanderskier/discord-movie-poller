@@ -24,6 +24,7 @@ MOVIE_SECTION = config.get("MOVIE_SECTION", "Movies")
 
 # === STATIC CONFIG ===
 MOVIES_PER_WEEK = 10
+RUNTIME = 135  # in minutes
 
 KID_KEYWORDS = {
     "family", "animation", "children", "kids", "disney",
@@ -50,15 +51,19 @@ def alt_queries(name):
     ]
 
 # === USER PROMPTS FOR FILTERING ===
+runtime_hours = round(RUNTIME / 60, 1)
 print("Configure filtering for movie selection:")
 filter_g = input("❓ Exclude G-rated movies? (y/n): ").strip().lower() == "y"
 filter_r = input("❓ Exclude R-rated movies? (y/n): ").strip().lower() == "y"
 filter_nudity = input("❓ Exclude movies with any nudity-related tags? (y/n): ").strip().lower() == "y"
+filter_runtime = input(f"❓ Exclude movies over {runtime_hours} hours? (y/n): ").strip().lower() == "y"
+
 
 print("\n🔧 Filters Applied:")
 print(f" - Exclude G-rated: {filter_g}")
 print(f" - Exclude R-rated: {filter_r}")
-print(f" - Exclude nudity: {filter_nudity}\n")
+print(f" - Exclude nudity: {filter_nudity}")
+print(f" - Exclude over {runtime_hours}hr runtime: {filter_runtime}\n")
 
 # === FOLDER & HISTORY ===
 def get_next_folder(base):
@@ -115,9 +120,17 @@ def get_metadata(name):
     details = requests.get(TMDB_MOVIE.format(id=mid), params={"api_key": TMDB_API_KEY}).json()
     coll = details.get("belongs_to_collection", {})
     coll_id = coll["id"] if coll else None
+    runtime = details.get("runtime", 0)
     keys = requests.get(TMDB_KEYWORDS.format(id=mid), params={"api_key": TMDB_API_KEY}).json().get("keywords", [])
     nude = any(k["name"].lower() in NUDITY_KEYWORDS for k in keys)
-    return {"title": name, "tmdb_id": mid, "release": release, "col": coll_id, "nude": nude}
+    return {
+        "title": name,
+        "tmdb_id": mid,
+        "release": release,
+        "col": coll_id,
+        "nude": nude,
+        "runtime": runtime
+    }
 
 # === SETUP ===
 week_folder, week_no = get_next_folder(OUT_FOLDER)
@@ -163,13 +176,16 @@ for movie in candidates:
     if filter_nudity and md["nude"]:
         print(f"🚫 Skipping {md['title']} due to nudity tag")
         continue
+    if filter_runtime and md["runtime"] and md["runtime"] > RUNTIME:
+        print(f"⏱️ Skipping {md['title']} due to runtime ({md['runtime']} min)")
+        continue
     meta_cache[movie["title"]] = md
     cid = md["col"]
     used_in_series = series_map.get(cid, []) if cid else []
     if not cid or not used_in_series or all(md["release"] > prev["release"] for prev in used_in_series):
         final.append({**movie, **md})
 
-print(f"🎯 {len(final)} candidates after series ordering and nudity filtering")
+print(f"🎯 {len(final)} candidates after series ordering and nudity/runtime filtering")
 
 # === UNIQUE SERIES FILTERING ===
 seen = set()
