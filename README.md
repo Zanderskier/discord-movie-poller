@@ -116,7 +116,6 @@ Each run will:
 
 # 🔐 Safety & Notes
 
-- The movie `"What is a Woman"` is hardcoded to be excluded  
 - Poster downloading is currently **disabled** (can be re-enabled)  
 - Compatible with `n8n` + Docker setups with volume mounts
 
