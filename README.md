@@ -116,11 +116,80 @@ Each run will:
 
 # 🔐 Safety & Notes
 
-- The movie `"What is a Woman"` is hardcoded to be excluded  
 - Poster downloading is currently **disabled** (can be re-enabled)  
-- Compatible with `n8n` + Docker setups with volume mounts
 
 ---
+
+## 🖼️ How to Re-Enable Poster Downloading
+
+If you'd like the script to automatically download movie posters from TMDB and save them alongside the weekly poll:
+
+---
+
+### ✅ Step 1: Update `get_metadata()` to Include Poster URL
+
+In your Python script, locate the `get_metadata()` function and replace it with the following:
+
+```python
+def get_metadata(name):
+    info = tmdb_search_movie(name)
+    if not info:
+        return None
+    mid = info["id"]
+    release = info.get("release_date", "9999-01-01")
+    details = requests.get(TMDB_MOVIE.format(id=mid), params={"api_key": TMDB_API_KEY}).json()
+    coll = details.get("belongs_to_collection", {})
+    coll_id = coll["id"] if coll else None
+    keys = requests.get(TMDB_KEYWORDS.format(id=mid), params={"api_key": TMDB_API_KEY}).json().get("keywords", [])
+    nude = any(k["name"].lower() in NUDITY_KEYWORDS for k in keys)
+    poster_url = f"https://image.tmdb.org/t/p/w500{details['poster_path']}" if details.get("poster_path") else None
+    return {
+        "title": name,
+        "tmdb_id": mid,
+        "release": release,
+        "col": coll_id,
+        "nude": nude,
+        "poster_url": poster_url
+    }
+```
+
+This enhancement extracts the `poster_path` from TMDB and constructs a full image URL for later use.
+
+---
+
+### 📥 Step 2: Add Poster Download Logic
+
+After the section where the weekly CSV is saved, insert this block of code:
+
+```python
+for movie in weekly:
+    title = movie["title"]
+    poster_url = meta_cache[title].get("poster_url")
+    if not poster_url:
+        continue
+    file_name = os.path.join(week_folder, sanitize(title) + ".jpg")
+    try:
+        img_data = requests.get(poster_url).content
+        with open(file_name, "wb") as f:
+            f.write(img_data)
+        print(f"🖼️ Saved poster for {title}")
+    except Exception as e:
+        print(f"❌ Failed to download poster for {title}: {e}")
+```
+
+Place this block right after the line that looks like:
+
+```python
+print(f"\n📜 Saved weekly poll: {csv}")
+```
+
+---
+
+### 🛑 Already Avoids Duplicate Downloads
+
+The script already checks for existing posters using the `poster_exists()` function, so this will not re-download posters if they’re already saved.
+
+--- 
 
 # 🧠 Roadmap Ideas
 
