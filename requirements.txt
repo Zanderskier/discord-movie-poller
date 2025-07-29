@@ -1,0 +1,6 @@
+plexapi
+pandas
+requests
+pyautogui
+pyperclip
+requests_toolbelt
