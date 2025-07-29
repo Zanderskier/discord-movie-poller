@@ -72,7 +72,8 @@ Create a `config.json` file based on `config_template.json` and update the follo
 ## ▶️ Run the Script
 
 ```bash
-python poll_generator.py
+python discord-movie-poller.py
+
 ```
 
 ## 🎛️ Answer Prompt Filters
@@ -84,10 +85,10 @@ You'll be asked whether to exclude:
 
 ## 📤 Post the Poll to Discord
 
-After the movie list is generated:
+After the movie list is generated (this process may take a minute depending on movie library size):
 
 - ✅ The formatted poll message is copied to your clipboard  
-- ⏳ The script will wait 2 seconds  
+- ⏳ The script will wait 2 seconds 
 - 🧠 It begins typing into Discord using your keyboard  
 - 🎯 **Make sure Discord is in focus and the message box is selected**
 
