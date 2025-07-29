@@ -1,5 +1,6 @@
 # === Secret Config ===
 config.json
+metadata_cache.json
 
 # === Weekly Output ===
 weeklyMovies/
