@@ -1,0 +1,29 @@
+# === Secret Config ===
+config.json
+
+# === Weekly Output ===
+weeklyMovies/
+*.csv
+
+# === Python Bytecode ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# === Virtual Environment ===
+env/
+venv/
+ENV/
+.venv/
+
+# === IDE & Editor Files ===
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# === System Files ===
+.DS_Store
+Thumbs.db
+desktop.ini

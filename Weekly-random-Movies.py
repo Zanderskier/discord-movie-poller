@@ -1,0 +1,246 @@
+import random, re, os, requests, pandas as pd
+from datetime import datetime
+from plexapi.server import PlexServer
+import json
+import pyautogui
+import pyperclip
+import time
+from requests_toolbelt.multipart.encoder import MultipartEncoder
+
+# === LOAD CONFIGURATION FROM FILE ===
+CONFIG_PATH = "config.json"
+
+if not os.path.exists(CONFIG_PATH):
+    raise FileNotFoundError(f"Missing {CONFIG_PATH}. Please create it from config_template.json.")
+
+with open(CONFIG_PATH, "r") as f:
+    config = json.load(f)
+
+PLEX_URL = config["PLEX_URL"]
+PLEX_TOKEN = config["PLEX_TOKEN"]
+TMDB_API_KEY = config["TMDB_API_KEY"]
+OUT_FOLDER = config["OUT_FOLDER"]
+MOVIE_SECTION = config.get("MOVIE_SECTION", "Movies")
+
+# === STATIC CONFIG ===
+MOVIES_PER_WEEK = 10
+
+KID_KEYWORDS = {
+    "family", "animation", "children", "kids", "disney",
+    "pixar", "dreamworks", "barbie", "nickelodeon"
+}
+NUDITY_KEYWORDS = {
+    "nudity", "female nudity", "male nudity", "explicit sex", "erotic",
+    "graphic nudity", "topless", "sex scene", "sexual content"
+}
+
+TMDB_SEARCH = "https://api.themoviedb.org/3/search/movie"
+TMDB_MOVIE = "https://api.themoviedb.org/3/movie/{id}"
+TMDB_KEYWORDS = "https://api.themoviedb.org/3/movie/{id}/keywords"
+
+# === UTILITIES ===
+def sanitize(name):
+    return re.sub(r'[\\/*?:"<>|]', "", name)
+
+def alt_queries(name):
+    return [
+        name,
+        re.sub(r"\\(.*?\\)", "", name).strip(),
+        name.replace(":", "").replace("-", "").strip()
+    ]
+
+# === USER PROMPTS FOR FILTERING ===
+print("Configure filtering for movie selection:")
+filter_g = input("❓ Exclude G-rated movies? (y/n): ").strip().lower() == "y"
+filter_r = input("❓ Exclude R-rated movies? (y/n): ").strip().lower() == "y"
+filter_nudity = input("❓ Exclude movies with any nudity-related tags? (y/n): ").strip().lower() == "y"
+
+print("\n🔧 Filters Applied:")
+print(f" - Exclude G-rated: {filter_g}")
+print(f" - Exclude R-rated: {filter_r}")
+print(f" - Exclude nudity: {filter_nudity}\n")
+
+# === FOLDER & HISTORY ===
+def get_next_folder(base):
+    os.makedirs(base, exist_ok=True)
+    weeks = sorted(
+        int(re.findall(r"\d+", d)[0])
+        for d in os.listdir(base)
+        if re.match(r"week\d+", d)
+    )
+    n = weeks[-1] + 1 if weeks else 1
+    path = os.path.join(base, f"week{n}")
+    os.makedirs(path, exist_ok=True)
+    return path, n
+
+def load_history(base):
+    used = set()
+    entries = []
+    for r, d, files in os.walk(base):
+        for f in files:
+            if f.endswith(".csv"):
+                df = pd.read_csv(os.path.join(r, f))
+                for t in df["title"]:
+                    used.add(t.strip().lower())
+                    entries.append(t.strip())
+    return used, entries
+
+def poster_exists(name, base):
+    name = name.lower()
+    for r, d, files in os.walk(base):
+        for q in alt_queries(name):
+            if sanitize(q) + ".jpg" in files:
+                return True
+    return False
+
+# === TMDB ===
+def tmdb_search_movie(name, retries=3, delay=5):
+    for attempt in range(retries):
+        try:
+            response = requests.get(
+                TMDB_SEARCH, params={"api_key": TMDB_API_KEY, "query": name}, timeout=10
+            )
+            return response.json().get("results", [])[0]
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ TMDB search failed for '{name}' (attempt {attempt+1}/{retries}): {e}")
+            time.sleep(delay)
+    return None
+
+def get_metadata(name):
+    info = tmdb_search_movie(name)
+    if not info:
+        return None
+    mid = info["id"]
+    release = info.get("release_date", "9999-01-01")
+    details = requests.get(TMDB_MOVIE.format(id=mid), params={"api_key": TMDB_API_KEY}).json()
+    coll = details.get("belongs_to_collection", {})
+    coll_id = coll["id"] if coll else None
+    keys = requests.get(TMDB_KEYWORDS.format(id=mid), params={"api_key": TMDB_API_KEY}).json().get("keywords", [])
+    nude = any(k["name"].lower() in NUDITY_KEYWORDS for k in keys)
+    return {"title": name, "tmdb_id": mid, "release": release, "col": coll_id, "nude": nude}
+
+# === SETUP ===
+week_folder, week_no = get_next_folder(OUT_FOLDER)
+used_titles, used_list = load_history(OUT_FOLDER)
+print(f"📁 Loaded {len(used_titles)} previously used movies")
+plex = PlexServer(PLEX_URL, PLEX_TOKEN)
+movies = plex.library.section(MOVIE_SECTION).all()
+
+# === FILTERING ===
+candidates = []
+for m in movies:
+    if not m: continue
+    t = m.title.strip()
+    tl = t.lower()
+    if tl == "what is a woman": continue  # Never select movie
+    cr = (getattr(m, "contentRating", "") or "").upper()
+    summ = getattr(m, "summary", "") or ""
+    gen = [g.tag.lower() for g in getattr(m, "genres", [])]
+
+    if filter_g and cr == "G": continue
+    if filter_r and cr == "R": continue
+    if tl in used_titles: continue
+    if any(k in summ.lower() for k in KID_KEYWORDS): continue
+    if any(k in gen for k in KID_KEYWORDS): continue
+    if any(k in tl for k in KID_KEYWORDS): continue
+    if poster_exists(t, OUT_FOLDER): continue
+    candidates.append({"title": t, "guid": m.guid})
+
+print(f"✅ {len(candidates)} movies after basic filtering")
+
+# === TMDB & SERIES FILTERING ===
+series_map = {}
+meta_cache = {}
+for title in used_list:
+    md = get_metadata(title)
+    if md and md["col"]:
+        series_map.setdefault(md["col"], []).append(md)
+
+final = []
+for movie in candidates:
+    md = get_metadata(movie["title"])
+    if not md: continue
+    if filter_nudity and md["nude"]:
+        print(f"🚫 Skipping {md['title']} due to nudity tag")
+        continue
+    meta_cache[movie["title"]] = md
+    cid = md["col"]
+    used_in_series = series_map.get(cid, []) if cid else []
+    if not cid or not used_in_series or all(md["release"] > prev["release"] for prev in used_in_series):
+        final.append({**movie, **md})
+
+print(f"🎯 {len(final)} candidates after series ordering and nudity filtering")
+
+# === UNIQUE SERIES FILTERING ===
+seen = set()
+unique = []
+for m in final:
+    key = m["col"] or m["title"].lower()
+    if key not in seen:
+        seen.add(key)
+        unique.append(m)
+
+if len(unique) < MOVIES_PER_WEEK:
+    raise Exception("❌ Not enough valid movies to choose")
+
+weekly = random.sample(unique, MOVIES_PER_WEEK)
+
+# === SAVE CSV ===
+df = pd.DataFrame(weekly)
+csv = f"movie_poll_week_{week_no}_{datetime.now():%Y-%m-%d}.csv"
+df.to_csv(os.path.join(week_folder, csv), index=False)
+print(f"\n📜 Saved weekly poll: {csv}")
+for m in weekly:
+    print(" -", m["title"])
+titles = [m["title"] for m in weekly]
+
+# === BUILD POLL LINES ===
+poll_lines = []
+for m in weekly:
+    md = meta_cache[m["title"]]
+    poll_lines.append(f"{m['title']}")
+
+# === FORMATTED COPY-PASTE POLL TEXT ===
+manual_poll_lines = []
+manual_poll_lines.append(f"/poll 🎮 Movie Night Poll - Week {week_no}")
+for i, m in enumerate(weekly):
+    manual_poll_lines.append(f"choice_{chr(97 + i)} {m['title']}")
+manual_poll_lines.append("You can vote for more than one")
+manual_poll_text = "\n".join(manual_poll_lines)
+
+print("\n📋 Copy-paste version of poll message:")
+print("========================================")
+print(manual_poll_text)
+print("========================================\n")
+
+# === OUTPUT POLL TEXT TO CLIPBOARD
+poll_text = "\n".join(poll_lines)
+pyperclip.copy(poll_text)
+print("📋 Poll titles copied to clipboard.")
+
+# === SEND TO DISCORD VIA SIMULATED TYPING
+print("⌨️ Switching to Discord and typing poll in 2 seconds...")
+time.sleep(2)
+
+pyautogui.typewrite(f"/poll 🎮 Movie Night Poll - Week {week_no} Thursday at 19:30. Voting closes Wednesday", interval=0.05)
+pyautogui.keyDown("ctrl")
+pyautogui.press("tab")
+pyautogui.keyUp("ctrl")
+time.sleep(0.5)
+
+for line in poll_lines:
+    pyautogui.typewrite("choice_", interval=0.05)
+    time.sleep(0.5)
+    pyautogui.press("enter")
+    time.sleep(0.5)
+    pyautogui.typewrite(line, interval=0.05)
+    time.sleep(0.5)
+    pyautogui.keyDown("ctrl")
+    pyautogui.press("tab")
+    pyautogui.keyUp("ctrl")
+
+time.sleep(1)
+pyautogui.press("enter")
+pyautogui.typewrite("You can vote for more than one", interval=0.05)
+pyautogui.press("enter")
+print("✅ Poll message sent via keyboard emulation.")
