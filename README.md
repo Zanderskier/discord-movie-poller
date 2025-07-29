@@ -37,3 +37,109 @@ Install with:
 
 ```bash
 pip install -r requirements.txt
+```
+# 📦 Dependencies
+
+Install using pip:
+
+```bash
+pip install plexapi pandas requests pyautogui pyperclip requests_toolbelt
+```
+
+Or include in your `requirements.txt`:
+
+```
+plexapi
+pandas
+requests
+pyautogui
+pyperclip
+requests_toolbelt
+```
+
+---
+
+# 🚀 Usage
+
+## 🛠️ Edit the Configuration File
+
+Create a `config.json` file based on `config_template.json` and update the following fields:
+
+- `PLEX_URL` and `PLEX_TOKEN`
+- `TMDB_API_KEY`
+- `OUT_FOLDER`
+
+## ▶️ Run the Script
+
+```bash
+python poll_generator.py
+```
+
+## 🎛️ Answer Prompt Filters
+
+You'll be asked whether to exclude:
+- G-rated movies  
+- R-rated movies  
+- Movies with nudity-related tags
+
+## 📤 Post the Poll to Discord
+
+After the movie list is generated:
+
+- ✅ The formatted poll message is copied to your clipboard  
+- ⏳ The script will wait 2 seconds  
+- 🧠 It begins typing into Discord using your keyboard  
+- 🎯 **Make sure Discord is in focus and the message box is selected**
+
+> The script uses `pyautogui` to simulate keystrokes and build the poll line by line.
+
+---
+
+# ⚠️ Important Note: Discord Must Be Ready
+
+Before the script starts typing, you **must manually click into the text input box** of your target Discord channel (e.g., `#python-message-generated`).
+
+❗ If the input box is not selected, the script may type into the wrong window—or do nothing.
+
+---
+
+# 📁 Output
+
+Each run will:
+
+- Create a folder like `week1`, `week2`, etc.
+- Save a CSV of selected movies
+- Print the formatted poll message
+- Copy poll choices to your clipboard
+
+---
+
+# 🔐 Safety & Notes
+
+- The movie `"What is a Woman"` is hardcoded to be excluded  
+- Poster downloading is currently **disabled** (can be re-enabled)  
+- Compatible with `n8n` + Docker setups with volume mounts
+
+---
+
+# 🧠 Roadmap Ideas
+
+- [ ] Optional poster download/upload to Discord  
+- [ ] Auto-detect correct Discord channel before typing  
+- [ ] GUI for filter configuration  
+- [ ] Replace keyboard simulation with Discord Bot API
+
+---
+
+# 📄 License
+
+MIT License
+
+---
+
+# 🙌 Credits
+
+Built with ❤️ for weekly community movie nights.  
+Powered by **Plex**, **TMDB**, and your own movie collection.  
+Uses [Simple Poll on Discord](https://discord.com/discovery/applications/324631108731928587) to collect votes.
+
